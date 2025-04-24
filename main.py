@@ -5,12 +5,26 @@ import threading
 import queue
 import numpy as np
 import os
-from tkinter import Toplevel, Listbox, messagebox
+from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
 from openai import OpenAI
 import assemblyai as aai
 from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
+import time
+import speech_recognition as sr
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
+
+samplerate = 16000
+channels = 2  # record more to capture full mic + system range
+q = queue.Queue()
+recording = False
+stream = None
+frames = []
+files_dir = "files/"
+os.makedirs(files_dir, exist_ok=True)
+r = sr.Recognizer()
 
 
 def get_file_name():
@@ -18,7 +32,7 @@ def get_file_name():
     formatted = now.strftime("%d_%m_%Y_%H_%M_%S")
     return formatted
 
-load_dotenv()  
+load_dotenv()
 
 assembly_key = os.getenv("ASSEMBLY_KEY")
 ai_token = os.getenv("AI_TOKEN")
@@ -35,7 +49,6 @@ def get_transcript(file_name):
     transcript = transcriber.transcribe(file_name)
 
     return transcript.text
-
 
 
 def connect():
@@ -175,16 +188,6 @@ def get_analytics_from_ai(transcript):
     return completion.choices[0].message.content
 
 
-samplerate = 44100
-channels = 10  # record more to capture full mic + system range
-q = queue.Queue()
-recording = False
-stream = None
-frames = []
-files_dir = "files/"
-os.makedirs(files_dir, exist_ok=True)
-
-
 def get_file_name():
     from datetime import datetime
     return datetime.now().strftime("recording_%Y%m%d_%H%M%S")
@@ -226,6 +229,52 @@ def start_recording():
 
     threading.Thread(target=_record, daemon=True).start()
 
+def transcribe_audio(path):
+    # use the audio file as the audio source
+    with sr.AudioFile(path) as source:
+        audio_listened = r.record(source)
+        # try converting it to text
+        text = r.recognize_google(audio_listened, language="ru-RU")
+    return text
+
+def get_large_audio_transcription_on_silence(path):
+    """Splitting the large audio file into chunks
+    and apply speech recognition on each of these chunks"""
+    # open the audio file using pydub
+    sound = AudioSegment.from_file(path)  
+    # split audio sound where silence is 500 miliseconds or more and get chunks
+    chunks = split_on_silence(sound,
+        # experiment with this value for your target audio file
+        min_silence_len = 1000,
+        # adjust this per requirement
+        silence_thresh = sound.dBFS-14,
+        # keep the silence for 1 second, adjustable as well
+        keep_silence=500,
+    )
+    folder_name = "files/audio-chunks"
+    # create a directory to store the audio chunks
+    if not os.path.isdir(folder_name):
+        os.mkdir(folder_name)
+    whole_text = ""
+    # process each chunk
+    for i, audio_chunk in enumerate(chunks, start=1):
+        # export audio chunk and save it in
+        # the `folder_name` directory.
+        chunk_filename = os.path.join(folder_name, f"chunk_{get_file_name()}.wav")
+        audio_chunk.export(chunk_filename, format="wav")
+        # recognize the chunk
+        try:
+            text = transcribe_audio(chunk_filename)
+        except sr.UnknownValueError as e:
+            print("Error:", str(e))
+        else:
+            text = f"{text.capitalize()}. "
+            print(chunk_filename, ":", text)
+            whole_text += text
+            os.remove(chunk_filename)
+    # return the text for all chunks detected
+    return whole_text
+
 def stop_recording():
     global recording
     recording = False
@@ -251,8 +300,9 @@ def stop_recording():
 
     # Step 1: after 100ms, update to transcript
     def step_1():
+        time.sleep(2)
         loader_label.config(text="📄 Getting transcript...")
-        transcript = get_transcript(full_path)
+        transcript = get_large_audio_transcription_on_silence(full_path)
         insert_transript(file_path=full_path, transcript=transcript)
         root.after(100, lambda: step_2(transcript))  # next step
 
@@ -269,7 +319,6 @@ def stop_recording():
         root.after(1000, loader.destroy)
     root.after(100, step_1)
 
-from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
 
 def open_files_window():
     window = Toplevel(root)
