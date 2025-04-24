@@ -7,9 +7,175 @@ import numpy as np
 import time
 import os
 from tkinter import Toplevel, Listbox, messagebox
-import analyze
-import assembly
 import db
+from openai import OpenAI
+import assemblyai as aai
+from dotenv import load_dotenv
+import sqlite3
+from datetime import datetime
+
+
+def get_file_name():
+    now = datetime.now()
+    formatted = now.strftime("%d_%m_%Y_%H_%M_%S")
+    return formatted
+
+load_dotenv()  
+
+assembly_key = os.getenv("ASSEMBLY_KEY")
+ai_token = os.getenv("AI_TOKEN")
+
+aai.settings.api_key = assembly_key
+config = aai.TranscriptionConfig(
+    language_code="ru"
+)
+
+transcriber = aai.Transcriber(config=config)
+
+def get_transcript(file_name):
+
+    transcript = transcriber.transcribe(file_name)
+
+    return transcript.text
+
+
+
+def connect():
+    conn = sqlite3.connect("recordings.db")
+    cur = conn.cursor()
+
+# Create a table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS recordings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT,
+        transcript TEXT,
+        analytics TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    return conn
+
+def insert_transript(file_path, transcript):
+    conn = connect()
+    cur = conn.cursor()
+
+    # Insert record
+    cur.execute("""
+        INSERT INTO recordings (file_path, transcript)
+        VALUES (?, ?)
+    """, (file_path, transcript))
+    
+    conn.commit()
+    conn.close()
+
+
+def update_analytics(file_path, analytics):
+    conn = connect()
+    cur = conn.cursor()
+
+    # Update the analytics field for the matching file_path
+    cur.execute("""
+        UPDATE recordings
+        SET analytics = ?
+        WHERE file_path = ?
+    """, (analytics, file_path))
+
+    if cur.rowcount == 0:
+        print(f"[DB] No record found for: {file_path}")
+    else:
+        print(f"[DB] Analytics updated for: {file_path}")
+    
+    conn.commit()
+    conn.close()
+    
+
+def get_recording(file_path):
+    conn = connect()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, file_path, transcript, analytics, created_at
+        FROM recordings
+        WHERE file_path = ?
+    """, (file_path,))
+    
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        return {
+            "id": row[0],
+            "file_path": row[1],
+            "transcript": row[2],
+            "analytics": row[3],
+            "created_at": row[4],
+        }
+    else:
+        return None
+    
+
+
+def update_transcript(file_path, new_transcript):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE recordings SET transcript = ? WHERE file_path = ?", (new_transcript, file_path))
+    conn.commit()
+    conn.close()
+
+def update_analytics(file_path, new_analytics):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE recordings SET analytics = ? WHERE file_path = ?", (new_analytics, file_path))
+    conn.commit()
+    conn.close()
+
+def get_all_recordings():
+    conn = connect()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, file_path, transcript, analytics, created_at
+        FROM recordings
+        ORDER BY created_at DESC
+    """)
+    
+    rows = cur.fetchall()
+    conn.close()
+
+    recordings = []
+    for row in rows:
+        recordings.append({
+            "id": row[0],
+            "file_path": row[1],
+            "transcript": row[2],
+            "analytics": row[3],
+            "created_at": row[4]
+        })
+
+    return recordings
+
+client = OpenAI(
+    # This is the default and can be omitted
+    api_key=ai_token,
+)
+def get_analytics_from_ai(transcript):
+    
+    # Пример запроса
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "developer", "content": 'Я предоставлю тебе транскрипт или краткое содержание нашей ежедневной встречи. Твоя задача — проанализировать его и составить чёткий, действенный план. Результат должен включать: 	1.	Ключевые обсуждаемые темы 	2.	Задачи к выполнению (с ответственными и сроками, если есть) 	3.	Открытые вопросы или блокеры 	4.	Следующие шаги  Будь кратким и используй маркированные списки для наглядности.'},
+            {
+                "role": "user",
+                "content": transcript,
+            },
+        ],
+    )
+
+    return completion.choices[0].message.content
+
 
 samplerate = 44100
 channels = 10  # record more to capture full mic + system range
@@ -82,30 +248,27 @@ def stop_recording():
     loader = tk.Toplevel(root)
     loader.geometry("300x100")
     loader.title("Processing")
-    loader_label = tk.Label(loader, text="⏳ Processing audio...")
+    loader_label = tk.Label(loader, text="⏳ Getting transcript...")
     loader_label.pack(pady=20)
 
     # Step 1: after 100ms, update to transcript
     def step_1():
         loader_label.config(text="📄 Getting transcript...")
-        transcript = assembly.get_transcript(full_path)
+        transcript = get_transcript(full_path)
         db.insert_transript(file_path=full_path, transcript=transcript)
-        print("Transcript Done")
         root.after(100, lambda: step_2(transcript))  # next step
 
     # Step 2: update to analytics
     def step_2(transcript):
         loader_label.config(text="📊 Analyzing transcript...")
-        analytics = analyze.get_analytics_from_ai(transcript=transcript)
+        analytics = get_analytics_from_ai(transcript=transcript)
         db.update_analytics(file_path=full_path, new_analytics=analytics)
-        print("Analyze done")
         root.after(100, step_3)
 
     # Step 3: close loader
     def step_3():
         loader_label.config(text="✅ Done!")
         root.after(1000, loader.destroy)
-
     root.after(100, step_1)
 
 from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
@@ -196,7 +359,7 @@ def show_file_actions(filename):
     def save_transcript():
         new_text = text_box.get("1.0", tk.END).strip()
         update_transcript(base_name, new_text)
-        analytics = analyze.get_analytics_from_ai(new_text)
+        analytics = get_analytics_from_ai(new_text)
         update_analytics(file_path=base_name, new_analytics=analytics)
         messagebox.showinfo("Saved", "✅ Transcript has been successfully updated!")
 
