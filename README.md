@@ -1,6 +1,9 @@
 # 🎙️ Audio Parser — GUI Recorder with Transcript & Analytics
 
-This is a macOS desktop application for recording system and microphone audio, transcribing it, and analyzing the result using AI. Built with Python, Tkinter, SQLite.
+This macOS desktop application enables users to record both system and microphone audio, transcribe the recording, and analyze the content using AI. It is built with Python, Tkinter, and SQLite for a lightweight and responsive experience.
+
+Use Case:
+Before joining a daily meeting, simply launch the app and start recording. Once the meeting concludes, stop the recording and allow the application to automatically transcribe and analyze the conversation. This provides valuable insights and documentation without manual note-taking.
 
 ---
 
