@@ -9,6 +9,7 @@ import os
 from tkinter import Toplevel, Listbox
 import analyze
 import assembly
+import db
 
 samplerate = 44100
 channels = 10  # record more to capture full mic + system range
@@ -17,6 +18,7 @@ recording = False
 stream = None
 frames = []
 files_dir = "files/"
+os.makedirs(files_dir, exist_ok=True)
 
 def get_file_name():
     from datetime import datetime
@@ -70,9 +72,6 @@ def stop_recording():
         return
 
     audio_data = np.concatenate(frames, axis=0)
-    if not os.path.exists(files_dir):
-        os.makedirs(files_dir)
-
     base_name = os.path.join(files_dir, get_file_name())
 
     # Save full multi-channel audio
@@ -81,13 +80,13 @@ def stop_recording():
 
     print(f"[Saved] Full: {full_path}")
 
-    time.sleep(2)
-
     transcript = assembly.get_transcript(full_path)
+    db.insert_transript(file_path=full_path, transcript=transcript)
+    print("Transcript done")
 
-    print("Transcript done\n")
-
-    print(analyze.get_analytics_from_ai(transcript))
+    analytics = analyze.get_analytics_from_ai(trascript=transcript)
+    db.update_analytics(file_path=full_path, analytics=analytics)
+    print("Analyitcs done")
 
 def open_files_window():
     if not os.path.exists(files_dir):
@@ -102,6 +101,8 @@ def open_files_window():
 
     files = sorted(os.listdir(files_dir))
     for f in files:
+        if ".git" in f:
+            continue
         listbox.insert(tk.END, f)
 
     def on_file_select(event):
@@ -114,17 +115,42 @@ def open_files_window():
     listbox.bind("<<ListboxSelect>>", on_file_select)
 
 def show_file_actions(filename):
+    from db import get_recording  # if your db logic is in another module
+
     action_win = Toplevel(root)
     action_win.title(f"Actions for {filename}")
-    action_win.geometry("300x150")
+    action_win.geometry("500x400")
 
     label = tk.Label(action_win, text=f"Selected File:\n{filename}", pady=10)
     label.pack()
 
-    btn_text = tk.Button(action_win, text="📝 Print Path", command=lambda: print(f"[Selected] {filename}"))
+    # Text box to display results
+    text_box = tk.Text(action_win, height=15, width=60, wrap="word")
+    text_box.pack(padx=10, pady=10)
+    base_name = os.path.join(files_dir, filename)
+
+    def show_transcript():
+        rec = get_recording(base_name)
+        if rec and rec["transcript"]:
+            text_box.delete(1.0, tk.END)
+            text_box.insert(tk.END, f"📄 Transcript:\n\n{rec['transcript']}")
+        else:
+            text_box.delete(1.0, tk.END)
+            text_box.insert(tk.END, "No transcript found.")
+
+    def show_analytics():
+        rec = get_recording(base_name)
+        if rec and rec["analytics"]:
+            text_box.delete(1.0, tk.END)
+            text_box.insert(tk.END, f"📊 Analytics:\n\n{rec['analytics']}")
+        else:
+            text_box.delete(1.0, tk.END)
+            text_box.insert(tk.END, "No analytics found.")
+
+    btn_text = tk.Button(action_win, text="📝 Show Transcript", command=show_transcript)
     btn_text.pack(pady=5)
 
-    btn_analytics = tk.Button(action_win, text="📊 Dummy Analytics", command=lambda: print(f"[Analytics] {filename}"))
+    btn_analytics = tk.Button(action_win, text="📊 Show Analytics", command=show_analytics)
     btn_analytics.pack(pady=5)
 
 # GUI Setup
