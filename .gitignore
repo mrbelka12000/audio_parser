@@ -6,3 +6,4 @@ app/
 env.py
 build/
 dist/
+.idea

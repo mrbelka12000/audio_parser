@@ -36,8 +36,8 @@ This is a macOS desktop application for recording system and microphone audio, t
 	3.	Create an Aggregate Device combining:
 		•	✅ Built-in Microphone
 		•	✅ BlackHole 16ch
-    	•	✅ BlackHole 16ch
-	5.	Set Multi-Output as system output
+    	•	✅ MacBook Speakers
+    4.  Set Clock Source to MacBook Speakers
 
 
 #### Audio MIDI Setup(Pay attention to the order of subdevices):
@@ -83,3 +83,17 @@ ap
 	•	Edit Transcript → Save changes in real-time -> Automatically update analytics
 
 
+---
+
+## 📬 Contact
+
+If you have questions, feedback, or want to collaborate — feel free to reach out:
+
+- 👤 **Beknur Karshyga**
+- 📧 Email: [karshyga.beknur@gmail.com](mailto:karshyga.beknur@gmail.com)
+- 💼 GitHub: [@mrbelka12000](https://github.com/mrbelka12000)
+- 🌐 LinkedIn: [Beknur Karshyga](https://www.linkedin.com/in/beknur-karshyga)
+
+Feel free to submit issues or feature requests through the GitHub repo as well!
+
+---
