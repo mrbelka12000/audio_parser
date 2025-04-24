@@ -1,4 +1,4 @@
 .env
 files/
 audio_parser/__pycache__
-my_database.db
+recordings.db

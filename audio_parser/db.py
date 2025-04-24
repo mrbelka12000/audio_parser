@@ -3,7 +3,7 @@ import sqlite3
 # Connect to database (creates file if it doesn't exist)
 
 def connect():
-    conn = sqlite3.connect("my_database.db")
+    conn = sqlite3.connect("recordings.db")
     cur = conn.cursor()
 
 # Create a table
