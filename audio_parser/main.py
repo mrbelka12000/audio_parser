@@ -20,6 +20,7 @@ frames = []
 files_dir = "files/"
 os.makedirs(files_dir, exist_ok=True)
 
+
 def get_file_name():
     from datetime import datetime
     return datetime.now().strftime("recording_%Y%m%d_%H%M%S")

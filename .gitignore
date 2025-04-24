@@ -3,3 +3,6 @@ files/
 audio_parser/__pycache__
 recordings.db
 app/
+env.py
+build/
+dist/
