@@ -62,10 +62,21 @@ pip install -r requirements.txt
 ```
 
 ```bash
+python3 main.py 
+```
+
+
+---
+
+## How to create application
+
+```bash
 python3 pyinstall.py
 ```
 
-### Program will appear in *dist* directory and able to execute
+### Program will appear in *dist* directory and able to execute.
+
+---
 
 ## 🧪 Usage
 	•	Start Recording → Captures input/output audio
