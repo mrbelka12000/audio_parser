@@ -76,3 +76,44 @@ def get_recording(file_path):
         }
     else:
         return None
+    
+
+
+def update_transcript(file_path, new_transcript):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE recordings SET transcript = ? WHERE file_path = ?", (new_transcript, file_path))
+    conn.commit()
+    conn.close()
+
+def update_analytics(file_path, new_analytics):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE recordings SET analytics = ? WHERE file_path = ?", (new_analytics, file_path))
+    conn.commit()
+    conn.close()
+
+def get_all_recordings():
+    conn = connect()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, file_path, transcript, analytics, created_at
+        FROM recordings
+        ORDER BY created_at DESC
+    """)
+    
+    rows = cur.fetchall()
+    conn.close()
+
+    recordings = []
+    for row in rows:
+        recordings.append({
+            "id": row[0],
+            "file_path": row[1],
+            "transcript": row[2],
+            "analytics": row[3],
+            "created_at": row[4]
+        })
+
+    return recordings

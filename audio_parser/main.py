@@ -6,7 +6,7 @@ import queue
 import numpy as np
 import time
 import os
-from tkinter import Toplevel, Listbox
+from tkinter import Toplevel, Listbox, messagebox
 import analyze
 import assembly
 import db
@@ -73,85 +73,146 @@ def stop_recording():
 
     audio_data = np.concatenate(frames, axis=0)
     base_name = os.path.join(files_dir, get_file_name())
-
-    # Save full multi-channel audio
     full_path = base_name + ".wav"
     sf.write(full_path, audio_data, samplerate)
-
     print(f"[Saved] Full: {full_path}")
 
-    transcript = assembly.get_transcript(full_path)
-    db.insert_transript(file_path=full_path, transcript=transcript)
-    print("Transcript done")
+    # Show loader
+    loader = tk.Toplevel(root)
+    loader.geometry("300x100")
+    loader.title("Processing")
+    loader_label = tk.Label(loader, text="⏳ Processing audio...")
+    loader_label.pack(pady=20)
 
-    analytics = analyze.get_analytics_from_ai(trascript=transcript)
-    db.update_analytics(file_path=full_path, analytics=analytics)
-    print("Analyitcs done")
+    # Step 1: after 100ms, update to transcript
+    def step_1():
+        loader_label.config(text="📄 Getting transcript...")
+        transcript = assembly.get_transcript(full_path)
+        db.insert_transript(file_path=full_path, transcript=transcript)
+        print("Transcript Done")
+        root.after(100, lambda: step_2(transcript))  # next step
+
+    # Step 2: update to analytics
+    def step_2(transcript):
+        loader_label.config(text="📊 Analyzing transcript...")
+        analytics = analyze.get_analytics_from_ai(transcript=transcript)
+        db.update_analytics(file_path=full_path, new_analytics=analytics)
+        print("Analyze done")
+        root.after(100, step_3)
+
+    # Step 3: close loader
+    def step_3():
+        loader_label.config(text="✅ Done!")
+        root.after(1000, loader.destroy)
+
+    root.after(100, step_1)
+
+from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
+from db import get_all_recordings  # assuming you saved that function
 
 def open_files_window():
-    if not os.path.exists(files_dir):
-        os.makedirs(files_dir)
-
     window = Toplevel(root)
-    window.title("Files in 'files/' Directory")
-    window.geometry("300x400")
+    window.title("📁 Recordings in Database")
+    window.geometry("600x400")
 
-    listbox = Listbox(window, width=40)
-    listbox.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+    listbox = Listbox(window, width=80)
+    listbox.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-    files = sorted(os.listdir(files_dir))
-    for f in files:
-        if ".git" in f:
-            continue
-        listbox.insert(tk.END, f)
+    scrollbar = Scrollbar(window, orient="vertical", command=listbox.yview)
+    scrollbar.pack(side=RIGHT, fill=Y)
+    listbox.config(yscrollcommand=scrollbar.set)
+
+    # Get all recordings from the DB
+    recordings = get_all_recordings()
+    for rec in recordings:
+        filename = os.path.basename(rec["file_path"])
+        created = rec["created_at"]
+        display_text = f"{created.ljust(25)} {filename.ljust(30)}"
+        listbox.insert(tk.END, display_text)
+
+    # Store mapping: index -> file_path
+    index_to_path = {i: rec["file_path"] for i, rec in enumerate(recordings)}
 
     def on_file_select(event):
         selected_idx = listbox.curselection()
         if not selected_idx:
             return
-        filename = listbox.get(selected_idx[0])
-        show_file_actions(filename)
+        filename = index_to_path[selected_idx[0]]
+        show_file_actions(os.path.basename(filename))
 
     listbox.bind("<<ListboxSelect>>", on_file_select)
 
 def show_file_actions(filename):
-    from db import get_recording  # if your db logic is in another module
+    from db import get_recording, update_transcript, update_analytics
+    from tkinter import messagebox
 
     action_win = Toplevel(root)
-    action_win.title(f"Actions for {filename}")
-    action_win.geometry("500x400")
+    action_win.title(f"Transcript for {filename}")
+    action_win.geometry("800x600")
 
-    label = tk.Label(action_win, text=f"Selected File:\n{filename}", pady=10)
-    label.pack()
-
-    # Text box to display results
-    text_box = tk.Text(action_win, height=15, width=60, wrap="word")
-    text_box.pack(padx=10, pady=10)
     base_name = os.path.join(files_dir, filename)
 
+    save_button_visible = {"transcript": False, "analytics":False}  # use mutable dict to modify in nested scope
+
+    # Text box
+    text_box = tk.Text(action_win, wrap="word")
+    text_box.pack(expand=True, fill="both", padx=10, pady=10)
+    rec = get_recording(base_name)
+    text_box.insert(tk.END, rec["transcript"])
+
     def show_transcript():
+
+        save_button_visible["analytics"] = False
+        save_button_visible["transcript"] = True
+
         rec = get_recording(base_name)
+        text_box.delete(1.0, tk.END)
         if rec and rec["transcript"]:
-            text_box.delete(1.0, tk.END)
-            text_box.insert(tk.END, f"📄 Transcript:\n\n{rec['transcript']}")
+            text_box.insert(tk.END, rec["transcript"])
         else:
-            text_box.delete(1.0, tk.END)
             text_box.insert(tk.END, "No transcript found.")
 
+
     def show_analytics():
+        save_button_visible["analytics"] = True
+        save_button_visible["transcript"] = False
+
+        action_win.title(f"Analytics for {filename}")
         rec = get_recording(base_name)
+        text_box.delete(1.0, tk.END)
         if rec and rec["analytics"]:
-            text_box.delete(1.0, tk.END)
-            text_box.insert(tk.END, f"📊 Analytics:\n\n{rec['analytics']}")
+            text_box.insert(tk.END, rec["analytics"])
         else:
-            text_box.delete(1.0, tk.END)
             text_box.insert(tk.END, "No analytics found.")
 
+
+    def save_changes():
+        if save_button_visible["transcript"]:
+            save_transcript()
+        elif save_button_visible["analytics"]:
+            save_analytics()
+
+    def save_transcript():
+        new_text = text_box.get("1.0", tk.END).strip()
+        update_transcript(base_name, new_text)
+        analytics = analyze.get_analytics_from_ai(new_text)
+        update_analytics(file_path=base_name, new_analytics=analytics)
+        messagebox.showinfo("Saved", "✅ Transcript has been successfully updated!")
+
+    def save_analytics():
+        new_analytics = text_box.get("1.0", tk.END).strip()
+        update_analytics(file_path=base_name, new_analytics=new_analytics)
+        messagebox.showinfo("Saved", "✅ Analytics has been successfully updated!")
+
+    # Buttons
     btn_text = tk.Button(action_win, text="📝 Show Transcript", command=show_transcript)
     btn_text.pack(pady=5)
 
     btn_analytics = tk.Button(action_win, text="📊 Show Analytics", command=show_analytics)
     btn_analytics.pack(pady=5)
+
+    btn_update = tk.Button(action_win, text="💾 Save Changes", command=save_changes)
+    btn_update.pack(pady=5)
 
 # GUI Setup
 root = tk.Tk()
