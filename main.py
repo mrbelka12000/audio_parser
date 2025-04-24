@@ -7,7 +7,6 @@ import numpy as np
 import os
 from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
 from openai import OpenAI
-import assemblyai as aai
 from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
@@ -15,8 +14,9 @@ import time
 import speech_recognition as sr
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
+import uuid
 
-samplerate = 16000
+samplerate = 44100
 channels = 2  # record more to capture full mic + system range
 q = queue.Queue()
 recording = False
@@ -25,31 +25,11 @@ frames = []
 files_dir = "files/"
 os.makedirs(files_dir, exist_ok=True)
 r = sr.Recognizer()
-
-
-def get_file_name():
-    now = datetime.now()
-    formatted = now.strftime("%d_%m_%Y_%H_%M_%S")
-    return formatted
+myuuid = None
 
 load_dotenv()
 
-assembly_key = os.getenv("ASSEMBLY_KEY")
 ai_token = os.getenv("AI_TOKEN")
-
-aai.settings.api_key = assembly_key
-config = aai.TranscriptionConfig(
-    language_code="ru"
-)
-
-transcriber = aai.Transcriber(config=config)
-
-def get_transcript(file_name):
-
-    transcript = transcriber.transcribe(file_name)
-
-    return transcript.text
-
 
 def connect():
     conn = sqlite3.connect("recordings.db")
@@ -101,6 +81,27 @@ def update_analytics(file_path, analytics):
     conn.commit()
     conn.close()
     
+# Function to add text to an existing transcript in the database, or insert if no record exists
+def add_text_to_transcript(file_path, new_text):
+    conn = connect()
+    cur = conn.cursor()
+
+    # Check if a transcript already exists for the given file_path
+    cur.execute("SELECT id, transcript FROM recordings WHERE file_path = ?", (file_path,))
+    row = cur.fetchone()
+    if row:
+        # If a transcript exists, append the new text
+        current_transcript = row[1]  # Get the existing transcript (index 1)
+        updated_transcript = current_transcript + " " + new_text
+        # Update the transcript in the database
+        cur.execute("UPDATE recordings SET transcript = ? WHERE file_path = ?", (updated_transcript, file_path))
+    else:
+        # If no record exists, insert a new one with the file_path and new_text as transcript
+        cur.execute("INSERT INTO recordings (file_path, transcript) VALUES (?, ?)", (file_path, new_text))
+
+    # Commit changes and close the connection
+    conn.commit()
+    conn.close()
 
 def get_recording(file_path):
     conn = connect()
@@ -190,7 +191,7 @@ def get_analytics_from_ai(transcript):
 
 def get_file_name():
     from datetime import datetime
-    return datetime.now().strftime("recording_%Y%m%d_%H%M%S")
+    return datetime.now().strftime(f"recording_{myuuid}")
 
 def audio_callback(indata, frames_, time_, status):
     if status:
@@ -198,7 +199,9 @@ def audio_callback(indata, frames_, time_, status):
     q.put(indata.copy())
 
 def start_recording():
-    global stream, recording, frames
+    global stream, recording, frames,myuuid
+    myuuid = uuid.uuid4()
+
     frames.clear()
     recording = True
     btn_start.config(state=tk.DISABLED)
@@ -218,11 +221,14 @@ def start_recording():
         stream = sd.InputStream(samplerate=samplerate,
                                 channels=channels,
                                 callback=audio_callback,
-                                device=device)
+                                device=device,
+                                )
         stream.start()
         while recording:
             while not q.empty():
                 frames.append(q.get())
+                if len(frames) == 200:
+                    process_stream()
             sd.sleep(100)
         stream.stop()
         stream.close()
@@ -266,7 +272,7 @@ def get_large_audio_transcription_on_silence(path):
         try:
             text = transcribe_audio(chunk_filename)
         except sr.UnknownValueError as e:
-            print("Error:", str(e))
+            print("Error:", e)
         else:
             text = f"{text.capitalize()}. "
             print(chunk_filename, ":", text)
@@ -275,21 +281,47 @@ def get_large_audio_transcription_on_silence(path):
     # return the text for all chunks detected
     return whole_text
 
+def get_audio_data():
+    audio_data = np.concatenate(frames, axis=0)
+    frames.clear()
+    return audio_data
+
+def process_stream():
+    base_name = os.path.join(files_dir, get_file_name())
+
+    full_path = base_name + ".wav"
+
+    sf.write(full_path, get_audio_data(), samplerate)
+
+    transcript = get_large_audio_transcription_on_silence(full_path)
+    if len(transcript.strip()) == 0:
+        print("Empty transcript")
+        os.remove(full_path)
+        return
+
+    add_text_to_transcript(file_path=full_path, new_text=transcript)
+
+    os.remove(full_path)
+
 def stop_recording():
     global recording
     recording = False
     btn_start.config(state=tk.NORMAL)
     btn_stop.config(state=tk.DISABLED)
 
+    while not q.empty():
+        frames.append(q.get())
+
     if not frames:
         print("No audio captured.")
         return
 
-    audio_data = np.concatenate(frames, axis=0)
+    
     base_name = os.path.join(files_dir, get_file_name())
     full_path = base_name + ".wav"
-    sf.write(full_path, audio_data, samplerate)
+    sf.write(full_path, get_audio_data(), samplerate)
     print(f"[Saved] Full: {full_path}")
+    frames.clear()
 
     # Show loader
     loader = tk.Toplevel(root)
@@ -303,7 +335,7 @@ def stop_recording():
         time.sleep(2)
         loader_label.config(text="📄 Getting transcript...")
         transcript = get_large_audio_transcription_on_silence(full_path)
-        insert_transript(file_path=full_path, transcript=transcript)
+        add_text_to_transcript(file_path=full_path, new_text=transcript)
         root.after(100, lambda: step_2(transcript))  # next step
 
     # Step 2: update to analytics
