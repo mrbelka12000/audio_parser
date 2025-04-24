@@ -72,6 +72,9 @@ sudo cp app/main/main /usr/local/bin/ap
 sudo cp -R app/main/_internal /usr/local/bin/_internal
 ```
 
+
+### Run program:
+
 ```bash
 ap
 ```
