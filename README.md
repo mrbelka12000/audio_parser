@@ -49,6 +49,8 @@ This is a macOS desktop application for recording system and microphone audio, t
 
 ## 📦 How to Run (Dev)
 
+### Create an .env file. The template can be found in the project root directory(.env.example)
+
 ```bash
 # 1. Clone the repo and navigate to the project
 git clone https://github.com/mrbelka12000/audio_parser.git
@@ -59,32 +61,17 @@ cd audio_parser
 pip install -r requirements.txt
 ```
 
-### env.py example
-```python
-import os
-os.environ["ASSEMBLY_KEY"] = "****"
-os.environ["AI_TOKEN"] = "****"
-```
-
 ```bash
-pyinstaller audio_parser/main.py --distpath app --runtime-hook=env.py
-sudo cp app/main/main /usr/local/bin/ap
-sudo cp -R app/main/_internal /usr/local/bin/_internal
+python3 pyinstall.py
 ```
 
-
-### Run program:
-
-```bash
-ap
-```
+### Program will appear in *dist* directory and able to execute
 
 ## 🧪 Usage
 	•	Start Recording → Captures input/output audio
 	•	Stop Recording → Triggers async transcription & analytics
 	•	View Files → Browse stored recordings with full metadata
 	•	Edit Transcript → Save changes in real-time -> Automatically update analytics
-
 
 ---
 
