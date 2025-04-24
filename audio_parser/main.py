@@ -4,10 +4,8 @@ import tkinter as tk
 import threading
 import queue
 import numpy as np
-import time
 import os
 from tkinter import Toplevel, Listbox, messagebox
-import db
 from openai import OpenAI
 import assemblyai as aai
 from dotenv import load_dotenv
@@ -255,14 +253,14 @@ def stop_recording():
     def step_1():
         loader_label.config(text="📄 Getting transcript...")
         transcript = get_transcript(full_path)
-        db.insert_transript(file_path=full_path, transcript=transcript)
+        insert_transript(file_path=full_path, transcript=transcript)
         root.after(100, lambda: step_2(transcript))  # next step
 
     # Step 2: update to analytics
     def step_2(transcript):
         loader_label.config(text="📊 Analyzing transcript...")
         analytics = get_analytics_from_ai(transcript=transcript)
-        db.update_analytics(file_path=full_path, new_analytics=analytics)
+        update_analytics(file_path=full_path, new_analytics=analytics)
         root.after(100, step_3)
 
     # Step 3: close loader
@@ -272,7 +270,6 @@ def stop_recording():
     root.after(100, step_1)
 
 from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
-from db import get_all_recordings  # assuming you saved that function
 
 def open_files_window():
     window = Toplevel(root)
@@ -307,7 +304,6 @@ def open_files_window():
     listbox.bind("<<ListboxSelect>>", on_file_select)
 
 def show_file_actions(filename):
-    from db import get_recording, update_transcript, update_analytics
     from tkinter import messagebox
 
     action_win = Toplevel(root)
