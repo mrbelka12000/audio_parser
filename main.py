@@ -289,6 +289,9 @@ def get_audio_np():
         print("❌ Audio is all zeros.")
         return np.zeros(1, dtype=np.int16)
 
+    audio_data = audio_data.astype(np.float32)
+    gain = 2.5  # ← adjust gain factor here (1.0 = no change)
+    audio_data *= gain
     # Skip gain
     audio_data = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
     return audio_data
@@ -342,7 +345,6 @@ def process_stream():
     print("=== process_stream END ===")
     return transcript
 
-
 def stop_recording():
     global recording
     recording = False
@@ -373,9 +375,17 @@ def stop_recording():
 
     # Step 2: update to analytics
     def step_2(transcript):
-        if transcript is None or len(transcript.strip()) == 0:
+
+        file_name = get_file_name()
+        ex_transcript = get_recording(file_path=file_name)["transcript"]
+
+        if (transcript is None or len(transcript.strip()) == 0) and (ex_transcript is None or len(ex_transcript.strip()) == 0):
             root.after(1000, loader.destroy)
             return
+        
+        if transcript is None and ex_transcript is not None:
+            transcript = "."
+
         loader_label.config(text="📊 Analyzing transcript...")
         analytics = get_analytics_from_ai(transcript=transcript)
         update_analytics(file_path=get_file_name(), new_analytics=analytics)
