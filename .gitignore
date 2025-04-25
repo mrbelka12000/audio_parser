@@ -7,3 +7,4 @@ env.py
 build/
 dist/
 .idea
+venv

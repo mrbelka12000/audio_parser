@@ -3,9 +3,11 @@ import PyInstaller.__main__
 PyInstaller.__main__.run(
     [
         'main.py',
-        '--windowed',
-        '--noconsole',
+        '--name=AudioParser',
         '--icon=docs/audio_logo.icns',
-        '--onefile',
+        '--noconfirm',
+        '--windowed',
+        '--osx-bundle-identifier=com.bek.audio',
+        '--codesign-identity=-',
     ]
 )

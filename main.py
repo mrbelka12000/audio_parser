@@ -4,38 +4,47 @@ import tkinter as tk
 import threading
 import queue
 import numpy as np
-import os
-from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y
+from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y, messagebox, simpledialog
 from openai import OpenAI
-from dotenv import load_dotenv
 import sqlite3
-from datetime import datetime
 import time
 import speech_recognition as sr
-from pydub import AudioSegment
-from pydub.silence import split_on_silence
 import uuid
+import io
+import os
+import sys
 
+from scipy.io.wavfile import write
+
+if hasattr(sys, '_MEIPASS'):
+    base_path = sys._MEIPASS
+else:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+os.environ['DYLD_LIBRARY_PATH'] = base_path
+
+# -----------------------SETTINGS----------------------------
 samplerate = 44100
 channels = 2  # record more to capture full mic + system range
 q = queue.Queue()
 recording = False
 stream = None
 frames = []
-files_dir = "files/"
-os.makedirs(files_dir, exist_ok=True)
 r = sr.Recognizer()
 myuuid = None
 
-load_dotenv()
+api_key_id = 10
+api_key = None
 
-ai_token = os.getenv("AI_TOKEN")
-
+# -----------------------DATABASE---------------------------
 def connect():
     conn = sqlite3.connect("recordings.db")
-    cur = conn.cursor()
+    return conn
 
-# Create a table
+def init_db():
+    conn = connect()
+    cur = conn.cursor()
+    
     cur.execute("""
     CREATE TABLE IF NOT EXISTS recordings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +55,16 @@ def connect():
     )
     """)
 
-    return conn
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS api_key(
+        id  INTEGER,
+        key TEXT
+    )
+""")
+
+    conn.commit()
+    conn.close()
+
 
 def insert_transript(file_path, transcript):
     conn = connect()
@@ -80,7 +98,7 @@ def update_analytics(file_path, analytics):
     
     conn.commit()
     conn.close()
-    
+
 # Function to add text to an existing transcript in the database, or insert if no record exists
 def add_text_to_transcript(file_path, new_text):
     conn = connect()
@@ -128,7 +146,30 @@ def get_recording(file_path):
         return None
     
 
+def set_api_key(api_key):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO api_key(id, key) VALUES(?, ?)", (api_key_id, api_key))
+    conn.commit()
+    conn.close()
 
+def get_api_key():
+    conn = connect()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT key FROM api_key WHERE id = ?
+""", (api_key_id,))
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        return {
+            "key": row[0],
+        }
+    else:
+        return None
+    
 def update_transcript(file_path, new_transcript):
     conn = connect()
     cur = conn.cursor()
@@ -168,13 +209,13 @@ def get_all_recordings():
 
     return recordings
 
-client = OpenAI(
-    # This is the default and can be omitted
-    api_key=ai_token,
-)
+# -----------------------AI------------------------------
 def get_analytics_from_ai(transcript):
-    
-    # Пример запроса
+    client = OpenAI(
+        # This is the default and can be omitted
+        api_key=api_key,
+    )
+
     completion = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -193,6 +234,8 @@ def get_file_name():
     from datetime import datetime
     return datetime.now().strftime(f"recording_{myuuid}")
 
+
+# -----------------------TKINTER---------------------------
 def audio_callback(indata, frames_, time_, status):
     if status:
         print("Stream status:", status)
@@ -227,7 +270,7 @@ def start_recording():
         while recording:
             while not q.empty():
                 frames.append(q.get())
-                if len(frames) == 200:
+                if len(frames) >= 200 and len(frames) % 50 == 0:
                     process_stream()
             sd.sleep(100)
         stream.stop()
@@ -235,73 +278,70 @@ def start_recording():
 
     threading.Thread(target=_record, daemon=True).start()
 
-def transcribe_audio(path):
-    # use the audio file as the audio source
-    with sr.AudioFile(path) as source:
-        audio_listened = r.record(source)
-        # try converting it to text
-        text = r.recognize_google(audio_listened, language="ru-RU")
-    return text
 
-def get_large_audio_transcription_on_silence(path):
-    """Splitting the large audio file into chunks
-    and apply speech recognition on each of these chunks"""
-    # open the audio file using pydub
-    sound = AudioSegment.from_file(path)  
-    # split audio sound where silence is 500 miliseconds or more and get chunks
-    chunks = split_on_silence(sound,
-        # experiment with this value for your target audio file
-        min_silence_len = 1000,
-        # adjust this per requirement
-        silence_thresh = sound.dBFS-14,
-        # keep the silence for 1 second, adjustable as well
-        keep_silence=500,
-    )
-    folder_name = "files/audio-chunks"
-    # create a directory to store the audio chunks
-    if not os.path.isdir(folder_name):
-        os.mkdir(folder_name)
-    whole_text = ""
-    # process each chunk
-    for i, audio_chunk in enumerate(chunks, start=1):
-        # export audio chunk and save it in
-        # the `folder_name` directory.
-        chunk_filename = os.path.join(folder_name, f"chunk_{get_file_name()}.wav")
-        audio_chunk.export(chunk_filename, format="wav")
-        # recognize the chunk
-        try:
-            text = transcribe_audio(chunk_filename)
-        except sr.UnknownValueError as e:
-            print("Error:", e)
-        else:
-            text = f"{text.capitalize()}. "
-            print(chunk_filename, ":", text)
-            whole_text += text
-            os.remove(chunk_filename)
-    # return the text for all chunks detected
-    return whole_text
-
-def get_audio_data():
+def get_audio_np():
     audio_data = np.concatenate(frames, axis=0)
-    frames.clear()
+
+    if audio_data.ndim == 2 and audio_data.shape[1] == 2:
+        audio_data = audio_data.mean(axis=1)
+
+    if np.all(audio_data == 0):
+        print("❌ Audio is all zeros.")
+        return np.zeros(1, dtype=np.int16)
+
+    # Skip gain
+    audio_data = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
     return audio_data
 
+def get_transcript(audio_data):
+    try:
+        transcript = r.recognize_google(audio_data, language="ru-RU")
+        if len(transcript.strip()) == 0:
+            print("Empty transcript")
+            return
+
+        return transcript
+    except sr.UnknownValueError:
+        print("Google Speech Recognition could not understand audio")
+    except sr.RequestError as e:
+        print(f"Google Speech Recognition request failed: {e}")
+    except Exception as e:
+        print(f"Other error: {e}")
+
 def process_stream():
-    base_name = os.path.join(files_dir, get_file_name())
+    print("Frame count:", len(frames))
 
-    full_path = base_name + ".wav"
-
-    sf.write(full_path, get_audio_data(), samplerate)
-
-    transcript = get_large_audio_transcription_on_silence(full_path)
-    if len(transcript.strip()) == 0:
-        print("Empty transcript")
-        os.remove(full_path)
+    if len(frames) == 0:
+        print("⚠️ No audio frames collected.")
         return
 
-    add_text_to_transcript(file_path=full_path, new_text=transcript)
+    audio_np = get_audio_np()
 
-    os.remove(full_path)
+    # Convert to bytes
+    try:
+        byte_io = io.BytesIO()
+        write(byte_io, samplerate, audio_np)
+        byte_io.seek(0)
+        result_bytes = byte_io.read()
+        audio_data = sr.AudioData(result_bytes, sample_rate=samplerate, sample_width=2)
+    except Exception as e:
+        print("❌ Audio conversion error:", e)
+        return
+
+    transcript = get_transcript(audio_data)
+    print("Transcript result:", transcript)
+
+    if transcript is None or len(transcript.strip()) == 0:
+        print("❌ Empty transcript")
+        return
+
+    file_name = get_file_name()
+    add_text_to_transcript(file_name, transcript)
+    frames.clear()
+
+    print("=== process_stream END ===")
+    return transcript
+
 
 def stop_recording():
     global recording
@@ -317,12 +357,6 @@ def stop_recording():
         return
 
     
-    base_name = os.path.join(files_dir, get_file_name())
-    full_path = base_name + ".wav"
-    sf.write(full_path, get_audio_data(), samplerate)
-    print(f"[Saved] Full: {full_path}")
-    frames.clear()
-
     # Show loader
     loader = tk.Toplevel(root)
     loader.geometry("300x100")
@@ -334,15 +368,18 @@ def stop_recording():
     def step_1():
         time.sleep(2)
         loader_label.config(text="📄 Getting transcript...")
-        transcript = get_large_audio_transcription_on_silence(full_path)
-        add_text_to_transcript(file_path=full_path, new_text=transcript)
+        transcript = process_stream()
         root.after(100, lambda: step_2(transcript))  # next step
 
     # Step 2: update to analytics
     def step_2(transcript):
+        if transcript is None or len(transcript.strip()) == 0:
+            root.after(1000, loader.destroy)
+            return
         loader_label.config(text="📊 Analyzing transcript...")
         analytics = get_analytics_from_ai(transcript=transcript)
-        update_analytics(file_path=full_path, new_analytics=analytics)
+        update_analytics(file_path=get_file_name(), new_analytics=analytics)
+
         root.after(100, step_3)
 
     # Step 3: close loader
@@ -367,11 +404,11 @@ def open_files_window():
     # Get all recordings from the DB
     recordings = get_all_recordings()
     for rec in recordings:
-        filename = os.path.basename(rec["file_path"])
-        created = rec["created_at"]
-        display_text = f"{created.ljust(25)} {filename.ljust(30)}"
-        listbox.insert(tk.END, display_text)
+        filename = rec.get("file_path") or "N/A"
+        created = rec.get("created_at") or "Unknown"
 
+        display_text = f"{str(created).ljust(25)} {str(filename).ljust(30)}"
+        listbox.insert(tk.END, display_text)
     # Store mapping: index -> file_path
     index_to_path = {i: rec["file_path"] for i, rec in enumerate(recordings)}
 
@@ -380,7 +417,7 @@ def open_files_window():
         if not selected_idx:
             return
         filename = index_to_path[selected_idx[0]]
-        show_file_actions(os.path.basename(filename))
+        show_file_actions(filename)
 
     listbox.bind("<<ListboxSelect>>", on_file_select)
 
@@ -391,7 +428,7 @@ def show_file_actions(filename):
     action_win.title(f"Transcript for {filename}")
     action_win.geometry("800x600")
 
-    base_name = os.path.join(files_dir, filename)
+    base_name = filename
 
     save_button_visible = {"transcript": False, "analytics":False}  # use mutable dict to modify in nested scope
 
@@ -455,9 +492,54 @@ def show_file_actions(filename):
     btn_update = tk.Button(action_win, text="💾 Save Changes", command=save_changes)
     btn_update.pack(pady=5)
 
+
+
 # GUI Setup
 root = tk.Tk()
 root.title("🎙 Dual Audio Recorder")
+
+
+
+# ---------------------API_KEY_VALIDATION-------------------------
+
+def prompt_api_key():
+    global api_key
+    # Disable main window until key entered
+    root.withdraw()
+
+    while not api_key:
+        api_key = simpledialog.askstring("API Key Required", "Please enter your API Key:", show='*')
+        if api_key is None or api_key.strip() == "":
+            messagebox.showwarning("Required", "API Key is required to use the app.")
+            continue
+        api_key = api_key.strip()
+
+        try:
+            get_analytics_from_ai("test_transcript")
+            set_api_key(api_key)
+            break
+        except Exception as e:
+            messagebox.showerror("Invalid", "API Key is invalid.")
+            print(e)
+            api_key = None  # ❗️reset so loop continues
+            continue
+            
+
+    # Re-enable main window
+    root.deiconify()
+
+init_db()
+
+rec = get_api_key()
+if rec and rec["key"]:
+    api_key = rec["key"]
+
+prompt_api_key()
+
+
+
+# -------------------------TKINTER-----------------------------
+
 
 btn_start = tk.Button(root, text="Start Recording", command=start_recording)
 btn_start.pack(padx=20, pady=10)

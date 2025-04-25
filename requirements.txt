@@ -2,5 +2,5 @@ sounddevice
 soundfile
 numpy
 openai
-assemblyai
-python-dotenv
+speechrecognition
+scipy
