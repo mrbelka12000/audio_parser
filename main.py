@@ -23,6 +23,8 @@ else:
 
 os.environ['DYLD_LIBRARY_PATH'] = base_path
 
+
+
 # -----------------------SETTINGS----------------------------
 samplerate = 44100
 channels = 2  # record more to capture full mic + system range
@@ -32,13 +34,17 @@ stream = None
 frames = []
 r = sr.Recognizer()
 myuuid = None
-
+default_directory_name = "~/.audio_parser"
+database_name='recordings.db'
 api_key_id = 10
 api_key = None
+os.makedirs(os.path.expanduser(default_directory_name), exist_ok=True)
 
 # -----------------------DATABASE---------------------------
+
 def connect():
-    conn = sqlite3.connect("recordings.db")
+    db_path = os.path.expanduser(os.path.join(default_directory_name, database_name))
+    conn = sqlite3.connect(db_path)
     return conn
 
 def init_db():
