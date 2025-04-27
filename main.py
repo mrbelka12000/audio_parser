@@ -203,6 +203,22 @@ def get_all_recordings():
 
     return recordings
 
+
+def delete_all_records():
+    answer = messagebox.askyesno("Confirm", "Are you sure you want to delete all records?")
+    if answer:
+
+
+        try:
+            conn = connect()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM recordings")
+            conn.commit()
+            conn.close()
+            messagebox.showinfo("Success", "All records have been deleted.")
+        except Exception as e:
+            messagebox.showinfo("Failed", f"Something went wrong: {e}")
+
 # -----------------------AI------------------------------
 def get_analytics_from_ai(transcript):
     client = OpenAI(
@@ -551,5 +567,8 @@ btn_stop.pack(padx=20, pady=10)
 
 btn_view_files = tk.Button(root, text="View Files", command=open_files_window)
 btn_view_files.pack(padx=20, pady=10)
+
+btn_delete_all = tk.Button(root, text="Delete All Records", command=delete_all_records)
+btn_delete_all.pack(padx=20, pady=10)
 
 root.mainloop()
