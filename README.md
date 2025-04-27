@@ -74,8 +74,7 @@ python3 main.py
 ## How to create application
 
 ```bash
-python setup.py py2app
-xattr -cr dist/AudioParser.app
+python3 pyinstall.py
 ```
 
 ### Program will appear in *dist* directory and able to execute.
