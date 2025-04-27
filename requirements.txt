@@ -1,5 +1,4 @@
 sounddevice
-soundfile
 numpy
 openai
 speechrecognition

@@ -1,5 +1,4 @@
 import sounddevice as sd
-import soundfile as sf
 import tkinter as tk
 import threading
 import queue
@@ -12,18 +11,7 @@ import speech_recognition as sr
 import uuid
 import io
 import os
-import sys
-
 from scipy.io.wavfile import write
-
-if hasattr(sys, '_MEIPASS'):
-    base_path = sys._MEIPASS
-else:
-    base_path = os.path.dirname(os.path.abspath(__file__))
-
-os.environ['DYLD_LIBRARY_PATH'] = base_path
-
-
 
 # -----------------------SETTINGS----------------------------
 samplerate = 44100
