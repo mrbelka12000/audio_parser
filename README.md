@@ -52,8 +52,6 @@ Before joining a daily meeting, simply launch the app and start recording. Once 
 
 ## 📦 How to Run (Dev)
 
-### Create an .env file. The template can be found in the project root directory(.env.example)
-
 ```bash
 # 1. Clone the repo and navigate to the project
 git clone https://github.com/mrbelka12000/audio_parser.git
