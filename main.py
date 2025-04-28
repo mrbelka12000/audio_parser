@@ -11,6 +11,7 @@ import uuid
 import io
 import os
 from scipy.io.wavfile import write
+import logging
 
 # -----------------------SETTINGS----------------------------
 samplerate = 44100
@@ -25,6 +26,7 @@ myuuid = None
 default_directory_name = "~/.audio_parser"
 database_name='recordings.db'
 default_files_dir = "files/"
+default_logs_dir = "logs/"
 api_key_id = 10
 api_key = None
 
@@ -35,6 +37,7 @@ def init_dirs():
 
     os.makedirs(os.path.expanduser(default_directory_name), exist_ok=True)
     os.makedirs(os.path.expanduser(os.path.join(default_directory_name, default_files_dir)), exist_ok=True)
+    os.makedirs(os.path.expanduser(os.path.join(default_directory_name, default_logs_dir)), exist_ok=True)
 
 init_dirs()
 
@@ -45,7 +48,15 @@ def get_file_path(file_name):
 def get_file_name():
     return f"{myuuid}"
 
+def get_logging_file_name():
+    return os.path.expanduser(os.path.join(default_directory_name, default_logs_dir, "logs.txt"))
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filename=get_logging_file_name(),
+    filemode="a",
+)
 # -----------------------DATABASE---------------------------
 
 def connect():
@@ -104,9 +115,9 @@ def update_analytics(file_name, analytics):
     """, (analytics, file_name))
 
     if cur.rowcount == 0:
-        print(f"[DB] No record found for: {file_name}")
+        logging.info(f"[DB] No record found for: {file_name}")
     else:
-        print(f"[DB] Analytics updated for: {file_name}")
+        logging.info(f"[DB] Analytics updated for: {file_name}")
     
     conn.commit()
     conn.close()
@@ -229,9 +240,9 @@ def delete_record_by_file_name(file_name):
         cur.execute("DELETE FROM recordings WHERE file_name = ?", (file_name,))
         conn.commit()
         conn.close()
-        print(f"✅ Record with file_name '{file_name}' deleted.")
+        logging.info(f"✅ Record with file_name '{file_name}' deleted.")
     except Exception as e:
-        print(f"❌ Failed to delete record '{file_name}': {e}")
+        logging.error(f"❌ Failed to delete record '{file_name}': {e}")
 
 def delete_all_records():
     answer = messagebox.askyesno("Confirm", "Are you sure you want to delete all records?")
@@ -242,11 +253,11 @@ def delete_all_records():
                 file_path = get_file_path(file_name=rec.get("file_name"))
                 if os.path.exists(file_path):
                     os.remove(file_path)
-                    print(f"✅ File '{file_path}' deleted successfully.")
+                    logging.info(f"✅ File '{file_path}' deleted successfully.")
                 else:
-                    print(f"⚠️ File '{file_path}' does not exist.")        
+                    logging.error(f"⚠️ File '{file_path}' does not exist.")        
         except Exception as e:
-            print(f"⚠️ Failed to delete file:'{file_path}'.")        
+            logging.error(f"⚠️ Failed to delete file:'{file_path}'.")        
             messagebox.showinfo("Failed", f"Something went wrong: {e}")
             return
 
@@ -258,6 +269,7 @@ def delete_all_records():
             conn.close()
             messagebox.showinfo("Success", "All records have been deleted.")
         except Exception as e:
+            logging.error(f"failed delete file: {e}")
             messagebox.showinfo("Failed", f"Something went wrong: {e}")
 
 # -----------------------AI------------------------------
@@ -285,7 +297,7 @@ def get_analytics_from_ai(transcript):
 # -----------------------TKINTER---------------------------
 def audio_callback(indata, frames_, time_, status):
     if status:
-        print("Stream status:", status)
+        logging.info("Stream status:", status)
     q.put(indata.copy())
 
 def start_recording():
@@ -305,7 +317,7 @@ def start_recording():
                 device = idx
                 break
         if device is None:
-            print("Aggregate device not found")
+            logging.error("Aggregate device not found")
             return
 
         stream = sd.InputStream(samplerate=samplerate,
@@ -316,10 +328,14 @@ def start_recording():
         stream.start()
         while recording:
             while not q.empty():
+
                 frames.append(q.get())
+
                 if len(frames) >= 200 and len(frames) % 50 == 0:
                     process_stream()
+
             sd.sleep(100)
+
         stream.stop()
         stream.close()
 
@@ -333,7 +349,7 @@ def get_audio_np():
         audio_data = audio_data.mean(axis=1)
 
     if np.all(audio_data == 0):
-        print("❌ Audio is all zeros.")
+        logging.debug("❌ Audio is all zeros.")
         return np.zeros(1, dtype=np.int16)
 
     audio_data = audio_data.astype(np.float32)
@@ -347,22 +363,22 @@ def get_transcript(audio_data):
     try:
         transcript = r.recognize_google(audio_data, language="ru-RU")
         if len(transcript.strip()) == 0:
-            print("Empty transcript")
+            logging.debug("Empty transcript")
             return
 
         return transcript
     except sr.UnknownValueError:
-        print("Google Speech Recognition could not understand audio")
+        logging.error("Google Speech Recognition could not understand audio")
     except sr.RequestError as e:
-        print(f"Google Speech Recognition request failed: {e}")
+        logging.error(f"Google Speech Recognition request failed: {e}")
     except Exception as e:
-        print(f"Other error: {e}")
+        logging.error(f"Other error: {e}")
 
 def process_stream():
-    print("Frame count:", len(frames))
+    logging.info(f"Frame count: {len(frames)}")
 
     if len(frames) == 0:
-        print("⚠️ No audio frames collected.")
+        logging.info("⚠️ No audio frames collected.")
         return
 
     audio_np = get_audio_np()
@@ -379,19 +395,19 @@ def process_stream():
 
 
     except Exception as e:
-        print("❌ Audio conversion error:", e)
+        logging.error("❌ Audio conversion error:", e)
         return
 
     transcript = get_transcript(audio_data)
-    print("Transcript result:", transcript)
+    logging.info(f"Transcript result: {transcript}")
 
     if transcript is None or len(transcript.strip()) == 0:
-        print("❌ Empty transcript")
+        logging.debug("❌ Empty transcript")
         return
 
     add_text_to_transcript(get_file_name(), transcript)
 
-    print("=== process_stream END ===")
+    logging.info("=== process_stream END ===")
     return transcript
 
 def stop_recording():
@@ -404,7 +420,7 @@ def stop_recording():
         frames.append(q.get())
 
     if not frames:
-        print("No audio captured.")
+        logging.debug("No audio captured.")
         return
     
     # Show loader
@@ -441,16 +457,17 @@ def stop_recording():
             global collected_audio_np
             collected_audio_np = []
         except Exception as e:
-            print(f"Got error on save full audio{e}")
+            logging.error(f"Got error on save full audio{e}")
             messagebox.showinfo("Failed" f"Transcript and Analytics is ready but failed to save audio:{e}")
 
         loader_label.config(text="✅ Done!")
         root.after(1000, loader.destroy)
+
     root.after(100, step_1)
 
 def save_full_audio():
     if not collected_audio_np:
-        print("⚠️ No collected audio to save.")
+        logging.debug("⚠️ No collected audio to save.")
         return
 
     output_path = get_file_path(file_name=get_file_name())
@@ -461,7 +478,7 @@ def save_full_audio():
     from scipy.io.wavfile import write
     write(output_path, samplerate, full_audio)
 
-    print(f"✅ Full audio saved to {output_path}")
+    logging.info(f"✅ Full audio saved to {output_path}")
 
 
 def open_files_window():
@@ -489,9 +506,12 @@ def open_files_window():
 
     def on_file_select(event):
         selected_idx = listbox.curselection()
+
         if not selected_idx:
             return
+
         filename = index_to_path[selected_idx[0]]
+
         show_file_actions(filename)
 
     listbox.bind("<<ListboxSelect>>", on_file_select)
@@ -595,7 +615,7 @@ def prompt_api_key():
             break
         except Exception as e:
             messagebox.showerror("Invalid", "API Key is invalid.")
-            print(e)
+            logging.error(f"Api key is invalid{e}")
             api_key = None  # ❗️reset so loop continues
             continue
             
