@@ -22,11 +22,30 @@ stream = None
 frames = []
 r = sr.Recognizer()
 myuuid = None
+
 default_directory_name = "~/.audio_parser"
 database_name='recordings.db'
+default_files_dir = "files/"
 api_key_id = 10
 api_key = None
-os.makedirs(os.path.expanduser(default_directory_name), exist_ok=True)
+
+collected_audio_np = []
+
+
+def init_dirs():
+
+    os.makedirs(os.path.expanduser(default_directory_name), exist_ok=True)
+    os.makedirs(os.path.expanduser(os.path.join(default_directory_name, default_files_dir)), exist_ok=True)
+
+init_dirs()
+
+
+def get_file_path(file_name):
+    return os.path.expanduser(os.path.join(default_directory_name, default_files_dir, file_name+".wav"))
+
+def get_file_name():
+    return f"{myuuid}"
+
 
 # -----------------------DATABASE---------------------------
 
@@ -42,7 +61,7 @@ def init_db():
     cur.execute("""
     CREATE TABLE IF NOT EXISTS recordings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path TEXT,
+        file_name TEXT,
         transcript TEXT,
         analytics TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -60,70 +79,70 @@ def init_db():
     conn.close()
 
 
-def insert_transript(file_path, transcript):
+def insert_transript(file_name, transcript):
     conn = connect()
     cur = conn.cursor()
 
     # Insert record
     cur.execute("""
-        INSERT INTO recordings (file_path, transcript)
+        INSERT INTO recordings (file_name, transcript)
         VALUES (?, ?)
-    """, (file_path, transcript))
+    """, (file_name, transcript))
     
     conn.commit()
     conn.close()
 
 
-def update_analytics(file_path, analytics):
+def update_analytics(file_name, analytics):
     conn = connect()
     cur = conn.cursor()
 
-    # Update the analytics field for the matching file_path
+    # Update the analytics field for the matching file_name
     cur.execute("""
         UPDATE recordings
         SET analytics = ?
-        WHERE file_path = ?
-    """, (analytics, file_path))
+        WHERE file_name = ?
+    """, (analytics, file_name))
 
     if cur.rowcount == 0:
-        print(f"[DB] No record found for: {file_path}")
+        print(f"[DB] No record found for: {file_name}")
     else:
-        print(f"[DB] Analytics updated for: {file_path}")
+        print(f"[DB] Analytics updated for: {file_name}")
     
     conn.commit()
     conn.close()
 
 # Function to add text to an existing transcript in the database, or insert if no record exists
-def add_text_to_transcript(file_path, new_text):
+def add_text_to_transcript(file_name, new_text):
     conn = connect()
     cur = conn.cursor()
 
-    # Check if a transcript already exists for the given file_path
-    cur.execute("SELECT id, transcript FROM recordings WHERE file_path = ?", (file_path,))
+    # Check if a transcript already exists for the given file_name
+    cur.execute("SELECT id, transcript FROM recordings WHERE file_name = ?", (file_name,))
     row = cur.fetchone()
     if row:
         # If a transcript exists, append the new text
         current_transcript = row[1]  # Get the existing transcript (index 1)
         updated_transcript = current_transcript + " " + new_text
         # Update the transcript in the database
-        cur.execute("UPDATE recordings SET transcript = ? WHERE file_path = ?", (updated_transcript, file_path))
+        cur.execute("UPDATE recordings SET transcript = ? WHERE file_name = ?", (updated_transcript, file_name))
     else:
-        # If no record exists, insert a new one with the file_path and new_text as transcript
-        cur.execute("INSERT INTO recordings (file_path, transcript) VALUES (?, ?)", (file_path, new_text))
+        # If no record exists, insert a new one with the file_name and new_text as transcript
+        cur.execute("INSERT INTO recordings (file_name, transcript) VALUES (?, ?)", (file_name, new_text))
 
     # Commit changes and close the connection
     conn.commit()
     conn.close()
 
-def get_recording(file_path):
+def get_recording(file_name):
     conn = connect()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, file_path, transcript, analytics, created_at
+        SELECT id, file_name, transcript, analytics, created_at
         FROM recordings
-        WHERE file_path = ?
-    """, (file_path,))
+        WHERE file_name = ?
+    """, (file_name,))
     
     row = cur.fetchone()
     conn.close()
@@ -131,7 +150,7 @@ def get_recording(file_path):
     if row:
         return {
             "id": row[0],
-            "file_path": row[1],
+            "file_name": row[1],
             "transcript": row[2],
             "analytics": row[3],
             "created_at": row[4],
@@ -164,17 +183,17 @@ def get_api_key():
     else:
         return None
     
-def update_transcript(file_path, new_transcript):
+def update_transcript(file_name, new_transcript):
     conn = connect()
     cur = conn.cursor()
-    cur.execute("UPDATE recordings SET transcript = ? WHERE file_path = ?", (new_transcript, file_path))
+    cur.execute("UPDATE recordings SET transcript = ? WHERE file_name = ?", (new_transcript, file_name))
     conn.commit()
     conn.close()
 
-def update_analytics(file_path, new_analytics):
+def update_analytics(file_name, new_analytics):
     conn = connect()
     cur = conn.cursor()
-    cur.execute("UPDATE recordings SET analytics = ? WHERE file_path = ?", (new_analytics, file_path))
+    cur.execute("UPDATE recordings SET analytics = ? WHERE file_name = ?", (new_analytics, file_name))
     conn.commit()
     conn.close()
 
@@ -183,7 +202,7 @@ def get_all_recordings():
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, file_path, transcript, analytics, created_at
+        SELECT id, file_name, transcript, analytics, created_at
         FROM recordings
         ORDER BY created_at DESC
     """)
@@ -195,7 +214,7 @@ def get_all_recordings():
     for row in rows:
         recordings.append({
             "id": row[0],
-            "file_path": row[1],
+            "file_name": row[1],
             "transcript": row[2],
             "analytics": row[3],
             "created_at": row[4]
@@ -204,10 +223,33 @@ def get_all_recordings():
     return recordings
 
 
+def delete_record_by_file_name(file_name):
+    try:
+        conn = connect()  # replace with your correct DB path
+        cur = conn.cursor()
+        cur.execute("DELETE FROM recordings WHERE file_name = ?", (file_name,))
+        conn.commit()
+        conn.close()
+        print(f"✅ Record with file_name '{file_name}' deleted.")
+    except Exception as e:
+        print(f"❌ Failed to delete record '{file_name}': {e}")
+
 def delete_all_records():
     answer = messagebox.askyesno("Confirm", "Are you sure you want to delete all records?")
     if answer:
-
+        try:
+            recordings = get_all_recordings()
+            for rec in recordings:
+                file_path = get_file_path(file_name=rec.get("file_name"))
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"✅ File '{file_path}' deleted successfully.")
+                else:
+                    print(f"⚠️ File '{file_path}' does not exist.")        
+        except Exception as e:
+            print(f"⚠️ Failed to delete file:'{file_path}'.")        
+            messagebox.showinfo("Failed", f"Something went wrong: {e}")
+            return
 
         try:
             conn = connect()
@@ -239,10 +281,6 @@ def get_analytics_from_ai(transcript):
 
     return completion.choices[0].message.content
 
-
-def get_file_name():
-    from datetime import datetime
-    return datetime.now().strftime(f"recording_{myuuid}")
 
 
 # -----------------------TKINTER---------------------------
@@ -330,6 +368,7 @@ def process_stream():
 
     audio_np = get_audio_np()
     frames.clear()
+    collected_audio_np.append(audio_np)
 
     # Convert to bytes
     try:
@@ -338,6 +377,8 @@ def process_stream():
         byte_io.seek(0)
         result_bytes = byte_io.read()
         audio_data = sr.AudioData(result_bytes, sample_rate=samplerate, sample_width=2)
+
+
     except Exception as e:
         print("❌ Audio conversion error:", e)
         return
@@ -376,7 +417,6 @@ def stop_recording():
 
     # Step 1: after 100ms, update to transcript
     def step_1():
-        time.sleep(2)
         loader_label.config(text="📄 Getting transcript...")
         transcript = process_stream()
         root.after(100, lambda: step_2(transcript))  # next step
@@ -384,27 +424,45 @@ def stop_recording():
     # Step 2: update to analytics
     def step_2(transcript):
 
-        file_name = get_file_name()
-        rec = get_recording(file_path=file_name)
-
-        if (transcript is None or len(transcript.strip()) == 0) and (rec is None or len(rec["transcript"].strip()) == 0):
-            root.after(1000, loader.destroy)
-            return
-        
-        if transcript is None and rec["transcript"] is not None:
-            transcript = "."
-
         loader_label.config(text="📊 Analyzing transcript...")
+
+        file_name = get_file_name()
+        if transcript is not None:
+            add_text_to_transcript(file_name=file_name, new_text=transcript)
+
         analytics = get_analytics_from_ai(transcript=transcript)
-        update_analytics(file_path=file_name, new_analytics=analytics)
+        update_analytics(file_name=file_name, new_analytics=analytics)
 
         root.after(100, step_3)
 
     # Step 3: close loader
     def step_3():
+        try:
+            save_full_audio()
+            global collected_audio_np
+            collected_audio_np = []
+        except Exception as e:
+            print(f"Got error on save full audio{e}")
+            messagebox.showinfo("Failed" f"Transcript and Analytics is ready but failed to save audio:{e}")
+
         loader_label.config(text="✅ Done!")
         root.after(1000, loader.destroy)
     root.after(100, step_1)
+
+def save_full_audio():
+    if not collected_audio_np:
+        print("⚠️ No collected audio to save.")
+        return
+
+    output_path = get_file_path(file_name=get_file_name())
+
+    import numpy as np
+    full_audio = np.concatenate(collected_audio_np, axis=0)
+
+    from scipy.io.wavfile import write
+    write(output_path, samplerate, full_audio)
+
+    print(f"✅ Full audio saved to {output_path}")
 
 
 def open_files_window():
@@ -422,13 +480,13 @@ def open_files_window():
     # Get all recordings from the DB
     recordings = get_all_recordings()
     for rec in recordings:
-        filename = rec.get("file_path") or "N/A"
+        filename = rec.get("file_name") or "N/A"
         created = rec.get("created_at") or "Unknown"
 
         display_text = f"{str(created).ljust(25)} {str(filename).ljust(30)}"
         listbox.insert(tk.END, display_text)
-    # Store mapping: index -> file_path
-    index_to_path = {i: rec["file_path"] for i, rec in enumerate(recordings)}
+    # Store mapping: index -> file_name
+    index_to_path = {i: rec["file_name"] for i, rec in enumerate(recordings)}
 
     def on_file_select(event):
         selected_idx = listbox.curselection()
@@ -492,12 +550,12 @@ def show_file_actions(filename):
         new_text = text_box.get("1.0", tk.END).strip()
         update_transcript(base_name, new_text)
         analytics = get_analytics_from_ai(new_text)
-        update_analytics(file_path=base_name, new_analytics=analytics)
+        update_analytics(file_name=base_name, new_analytics=analytics)
         messagebox.showinfo("Saved", "✅ Transcript has been successfully updated!")
 
     def save_analytics():
         new_analytics = text_box.get("1.0", tk.END).strip()
-        update_analytics(file_path=base_name, new_analytics=new_analytics)
+        update_analytics(file_name=base_name, new_analytics=new_analytics)
         messagebox.showinfo("Saved", "✅ Analytics has been successfully updated!")
 
     # Buttons
