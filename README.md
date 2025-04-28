@@ -22,11 +22,10 @@ Before joining a daily meeting, simply launch the app and start recording. Once 
 
 ## 🧰 Tech Stack
 
-- Python 3.10+ (macOS)
+- Python 3.13 (macOS)
 - Tkinter
 - SQLite3
-- `sounddevice`, `soundfile`, `numpy`
-- `python-dotenv` for managing API keys
+- `sounddevice`, `numpy`
 - `pyinstaller` for packaging
 
 ---

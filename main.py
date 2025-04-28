@@ -6,7 +6,6 @@ import numpy as np
 from tkinter import Toplevel, Listbox, Scrollbar, RIGHT, Y, messagebox, simpledialog
 from openai import OpenAI
 import sqlite3
-import time
 import speech_recognition as sr
 import uuid
 import io
