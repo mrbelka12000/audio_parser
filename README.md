@@ -11,7 +11,7 @@ Before joining a daily meeting, simply launch the app and start recording. Once 
 
 - ✅ Record system + microphone audio via **Aggregate Device** (BlackHole + Built-in Mic)
 - ✅ Save recordings locally as `.wav` default locations is *~/.audio_parser/files/*
-- ✅ Automatically transcribe using AssemblyAI
+- ✅ Automatically transcribe using *Google Speach Recognition*
 - ✅ Analyze transcript using custom AI logic
 - ✅ Store metadata in **SQLite** database default locations is *~/.audio_parser/recordings.db*
 - ✅ View & edit transcripts in GUI
