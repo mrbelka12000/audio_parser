@@ -17,6 +17,7 @@ Before joining a daily meeting, simply launch the app and start recording. Once 
 - ✅ View & edit transcripts in GUI
 - ✅ Display analytics per file
 - ✅ Async-safe **loading indicator** during processing
+- ✅ Logging into file default locations is *~/.audio_parser/logs/logs.txt*
 
 ---
 
