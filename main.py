@@ -292,8 +292,6 @@ def get_analytics_from_ai(transcript):
 
     return completion.choices[0].message.content
 
-
-
 # -----------------------TKINTER---------------------------
 def audio_callback(indata, frames_, time_, status):
     if status:
@@ -313,7 +311,7 @@ def start_recording():
         global stream
         device = None
         for idx, d in enumerate(sd.query_devices()):
-            if "Aggregate" in d['name']:
+            if "default" in d['name']:
                 device = idx
                 break
         if device is None:
@@ -327,7 +325,7 @@ def start_recording():
                                 )
         stream.start()
         while recording:
-            while not q.empty():
+            while not q.empty() and recording:
 
                 frames.append(q.get())
 
@@ -434,18 +432,20 @@ def stop_recording():
     def step_1():
         loader_label.config(text="📄 Getting transcript...")
         transcript = process_stream()
-        root.after(100, lambda: step_2(transcript))  # next step
+        if transcript is None:
+            transcript = ''
+
+        root.after(100, lambda: step_2())  # next step
 
     # Step 2: update to analytics
-    def step_2(transcript):
+    def step_2():
 
         loader_label.config(text="📊 Analyzing transcript...")
 
         file_name = get_file_name()
-        if transcript is not None:
-            add_text_to_transcript(file_name=file_name, new_text=transcript)
-
-        analytics = get_analytics_from_ai(transcript=transcript)
+  
+        rec = get_recording(file_name=file_name)
+        analytics = get_analytics_from_ai(transcript=rec.get("transcript"))
         update_analytics(file_name=file_name, new_analytics=analytics)
 
         root.after(100, step_3)
